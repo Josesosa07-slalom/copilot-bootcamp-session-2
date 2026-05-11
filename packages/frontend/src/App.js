@@ -1,126 +1,199 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  CircularProgress,
+  Container,
+  Paper,
+  Snackbar,
+  Typography,
+} from '@mui/material';
 import './App.css';
+import TaskForm from './components/TaskForm';
+import TaskList from './components/TaskList';
 
 function App() {
-  const [data, setData] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [newItem, setNewItem] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const getApiErrorMessage = async (response, fallbackMessage) => {
+    let payload;
 
-  const fetchData = async () => {
+    try {
+      payload = await response.json();
+    } catch (parseError) {
+      payload = null;
+    }
+
+    if (payload && payload.error) {
+      return payload.error;
+    }
+
+    if ([502, 503, 504].includes(response.status)) {
+      return 'Backend service is unavailable. Make sure the backend server is running on port 3030.';
+    }
+
+    return `${fallbackMessage} (HTTP ${response.status})`;
+  };
+
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/items');
+      const response = await fetch('/api/todos');
       if (!response.ok) {
         throw new Error('Network response was not ok');
       }
       const result = await response.json();
-      setData(result);
+      setTasks(result);
       setError(null);
     } catch (err) {
-      setError('Failed to fetch data: ' + err.message);
-      console.error('Error fetching data:', err);
+      setError(`Failed to fetch tasks: ${err.message}`);
+      console.error('Error fetching tasks:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!newItem.trim()) return;
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
+  const handleCreateTask = async ({ title, dueDate }) => {
     try {
-      const response = await fetch('/api/items', {
+      const response = await fetch('/api/todos', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name: newItem }),
+        body: JSON.stringify({ title, dueDate }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to add item');
+        const errorMessage = await getApiErrorMessage(response, 'Failed to create task');
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
-      setData([...data, result]);
-      setNewItem('');
+      setTasks((currentTasks) => [...currentTasks, result]);
+      setToastMessage('Task added');
+      setError(null);
+
+      fetchData();
     } catch (err) {
-      setError('Error adding item: ' + err.message);
-      console.error('Error adding item:', err);
+      setError(`Error adding task: ${err.message}`);
+      console.error('Error adding task:', err);
     }
   };
 
-  const handleDelete = async (itemId) => {
+  const handleDeleteTask = async (taskId) => {
     try {
-      const response = await fetch(`/api/items/${itemId}`, {
+      const response = await fetch(`/api/todos/${taskId}`, {
         method: 'DELETE',
       });
 
       if (!response.ok) {
-        throw new Error('Failed to delete item');
+        const errorMessage = await getApiErrorMessage(response, 'Failed to delete task');
+        throw new Error(errorMessage);
       }
 
-      setData(data.filter(item => item.id !== itemId));
+      setTasks((currentTasks) => currentTasks.filter((task) => task.id !== taskId));
+      setToastMessage('Task deleted');
       setError(null);
+
+      fetchData();
     } catch (err) {
-      setError('Error deleting item: ' + err.message);
-      console.error('Error deleting item:', err);
+      setError(`Error deleting task: ${err.message}`);
+      console.error('Error deleting task:', err);
+    }
+  };
+
+  const handleUpdateTask = async (taskId, patch) => {
+    try {
+      const existingTask = tasks.find((task) => task.id === taskId);
+      if (!existingTask) {
+        return;
+      }
+
+      const payload = {
+        title: patch.title ?? existingTask.title,
+        dueDate: patch.dueDate !== undefined ? patch.dueDate : existingTask.dueDate,
+        completed: patch.completed !== undefined ? patch.completed : existingTask.completed,
+      };
+
+      const response = await fetch(`/api/todos/${taskId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorMessage = await getApiErrorMessage(response, 'Failed to update task');
+        throw new Error(errorMessage);
+      }
+
+      const updatedTask = await response.json();
+      setTasks((currentTasks) => currentTasks.map((task) => (
+        task.id === taskId ? updatedTask : task
+      )));
+      setToastMessage('Task updated');
+      setError(null);
+
+      fetchData();
+    } catch (err) {
+      setError(`Error updating task: ${err.message}`);
+      console.error('Error updating task:', err);
     }
   };
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>To Do App</h1>
-        <p>Keep track of your tasks</p>
-      </header>
+    <Box className="app-shell">
+      <Container maxWidth="md" sx={{ py: { xs: 2, md: 4 } }}>
+        <Paper elevation={2} sx={{ p: { xs: 2, md: 3 }, display: 'grid', gap: { xs: 2, md: 3 } }}>
+          <Box>
+            <Typography variant="h4" component="h1" gutterBottom>
+              TODO Planner
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Create, prioritize, and complete your tasks.
+            </Typography>
+          </Box>
 
-      <main>
-        <section className="add-item-section">
-          <h2>Add New Item</h2>
-          <form onSubmit={handleSubmit}>
-            <input
-              type="text"
-              value={newItem}
-              onChange={(e) => setNewItem(e.target.value)}
-              placeholder="Enter item name"
-            />
-            <button type="submit">Add Item</button>
-          </form>
-        </section>
-
-        <section className="items-section">
-          <h2>Items from Database</h2>
-          {loading && <p>Loading data...</p>}
-          {error && <p className="error">{error}</p>}
-          {!loading && !error && (
-            <ul>
-              {data.length > 0 ? (
-                data.map((item) => (
-                  <li key={item.id}>
-                    <span>{item.name}</span>
-                    <button 
-                      onClick={() => handleDelete(item.id)}
-                      className="delete-btn"
-                      type="button"
-                    >
-                      Delete
-                    </button>
-                  </li>
-                ))
-              ) : (
-                <p>No items found. Add some!</p>
-              )}
-            </ul>
+          {error && (
+            <Alert severity="error" role="alert">
+              {error}
+            </Alert>
           )}
-        </section>
-      </main>
-    </div>
+
+          <TaskForm onCreate={handleCreateTask} loading={loading} />
+
+          {loading ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={22} />
+              <Typography>Loading tasks...</Typography>
+            </Box>
+          ) : (
+            <TaskList
+              tasks={tasks}
+              onToggle={(taskId, completed) => handleUpdateTask(taskId, { completed })}
+              onDelete={handleDeleteTask}
+              onEdit={handleUpdateTask}
+              loading={loading}
+            />
+          )}
+        </Paper>
+      </Container>
+
+      <Snackbar
+        open={Boolean(toastMessage)}
+        autoHideDuration={2500}
+        onClose={() => setToastMessage('')}
+        message={toastMessage}
+      />
+    </Box>
   );
 }
 
