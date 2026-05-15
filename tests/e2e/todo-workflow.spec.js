@@ -96,4 +96,28 @@ test.describe('TODO workflows', () => {
     await todoPage.expectTaskNotVisible('Obsolete task');
     await expect(page.getByText('No tasks yet. Add your first task.')).toBeVisible();
   });
+
+  test('persists tasks across page reload', async ({ page }) => {
+    const todoPage = new TodoPage(page);
+    await todoPage.goto();
+
+    await todoPage.addTask('Persisted task', '2026-06-15');
+    await todoPage.expectTaskVisible('Persisted task');
+    await todoPage.expectDueDateVisible('2026-06-15');
+
+    // Toggle the task to verify completion state also persists
+    await todoPage.toggleTask('Persisted task');
+    await expect(
+      page.getByRole('checkbox', { name: 'Mark Persisted task as incomplete' })
+    ).toBeChecked();
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'TODO Planner' })).toBeVisible();
+
+    await todoPage.expectTaskVisible('Persisted task');
+    await todoPage.expectDueDateVisible('2026-06-15');
+    await expect(
+      page.getByRole('checkbox', { name: 'Mark Persisted task as incomplete' })
+    ).toBeChecked();
+  });
 });
